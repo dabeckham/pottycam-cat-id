@@ -1,0 +1,14 @@
+# Core pipeline
+opencv-python>=4.9
+numpy>=1.26
+
+# Embeddings + clustering (Stage identity prep)
+torch>=2.2
+torchvision>=0.17
+scikit-learn>=1.4
+
+# Detection training (Stage A)
+ultralytics>=8.2
+
+# Optional: nicer clustering / review
+Pillow>=10.0
