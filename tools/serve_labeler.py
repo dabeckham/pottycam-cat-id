@@ -370,6 +370,9 @@ def main():
     ap = argparse.ArgumentParser(description="stdlib-only labeling server for pottycam-cat-id")
     ap.add_argument("--root", default=".", help="project root (contains data/)")
     ap.add_argument("--port", type=int, default=8747)
+    ap.add_argument("--host", default="127.0.0.1",
+                    help="bind address. Default 127.0.0.1 (private, recommended). Use 0.0.0.0 ONLY on a "
+                         "trusted LAN you control — home-camera footage is private, never expose it publicly.")
     args = ap.parse_args()
 
     root = os.path.abspath(args.root)
@@ -379,13 +382,13 @@ def main():
 
     store = LabelStore(root)
     handler = make_handler(root, store)
-    # 127.0.0.1 ONLY — private footage, never bind to 0.0.0.0.
-    httpd = ThreadingHTTPServer(("127.0.0.1", args.port), handler)
+    # Default 127.0.0.1 (private). --host 0.0.0.0 exposes on the LAN — only do that on a trusted network.
+    httpd = ThreadingHTTPServer((args.host, args.port), handler)
     st = store.state()
     print(f"[labeler] root={root}", flush=True)
     print(f"[labeler] already decided: {st['counts']['labeled']} labeled, "
           f"{st['counts']['rejected']} rejected", flush=True)
-    print(f"[labeler] serving http://127.0.0.1:{args.port}/  (Ctrl-C to stop)", flush=True)
+    print(f"[labeler] serving http://{args.host}:{args.port}/  (Ctrl-C to stop)", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

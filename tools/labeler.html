@@ -5,435 +5,182 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>pottycam labeler</title>
 <style>
-  /* ---- all styles inline; NO external requests (fonts/CSS/JS all local) ---- */
-  :root {
-    --bg: #14161a; --panel: #1c1f26; --panel2: #23272f; --line: #333a45;
-    --fg: #e8ebf0; --muted: #9aa4b2; --accent: #4da3ff;
-    --done: #2e7d32; --reject: #b0433a; --skip: #6b7280;
-    /* per-class accent colors (UI only — the footage itself is grayscale) */
-    --c1: #7fb2ff; --c2: #ffd166; --c3: #ff7a7a; --c4: #b98cff;
+  :root{
+    --sapphire:#3b82f6; --emerald:#10b981; --ruby:#ef4444; --diamond:#a855f7; --reject:#6b7280;
+    --bg:#14161a; --panel:#1e2127; --ink:#e8eaed; --muted:#9aa0a6; --line:#2c313a;
   }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; }
-  body {
-    background: var(--bg); color: var(--fg); font: 14px/1.4 system-ui, Segoe UI, Roboto, sans-serif;
-    display: flex; flex-direction: column;
-  }
-  header {
-    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-    padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
-  }
-  header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .3px; }
-  .toggle { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-  .toggle button {
-    background: var(--panel2); color: var(--muted); border: 0; padding: 6px 14px; cursor: pointer;
-    font: inherit;
-  }
-  .toggle button.on { background: var(--accent); color: #06121f; font-weight: 600; }
-  .counter { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
-  .counter b { color: var(--fg); }
-
-  /* legend */
-  .legend {
-    display: flex; gap: 14px; flex-wrap: wrap; padding: 8px 16px; background: var(--panel2);
-    border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--muted);
-  }
-  .legend .chip { display: inline-flex; align-items: center; gap: 6px; }
-  .legend .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-  .legend .warn { color: #ffcf6b; }
-
-  main { flex: 1; overflow: auto; padding: 14px 16px 80px; }
-
-  /* ---- PASS A: clusters ---- */
-  .cluster { margin-bottom: 26px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-  .cluster-head {
-    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-    padding: 8px 12px; background: var(--panel);
-  }
-  .cluster-head .title { font-weight: 600; }
-  .cluster-head .sub { color: var(--muted); font-size: 12.5px; }
-  .bulk { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
-  .btn {
-    background: var(--panel2); color: var(--fg); border: 1px solid var(--line);
-    border-radius: 7px; padding: 5px 10px; cursor: pointer; font: inherit;
-  }
-  .btn:hover { border-color: var(--accent); }
-  .btn.c1 { border-left: 3px solid var(--c1); }
-  .btn.c2 { border-left: 3px solid var(--c2); }
-  .btn.c3 { border-left: 3px solid var(--c3); }
-  .btn.c4 { border-left: 3px solid var(--c4); }
-  .btn.rej { border-left: 3px solid var(--reject); }
-  .grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px;
-    padding: 10px 12px;
-  }
-  .cell { position: relative; border: 2px solid transparent; border-radius: 8px; overflow: hidden;
-          background: #000; aspect-ratio: 1 / 1; }
-  .cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .cell .tag {
-    position: absolute; left: 0; bottom: 0; right: 0; font-size: 11px; padding: 2px 5px;
-    background: rgba(0,0,0,.62); color: #fff;
-  }
-  .cell.done { border-color: var(--done); }
-  .cell.rejected { border-color: var(--reject); }
-  .cell .ov {
-    position: absolute; inset: 0; display: none; grid-template-columns: repeat(3, 1fr);
-    background: rgba(0,0,0,.72);
-  }
-  .cell:hover .ov { display: grid; }
-  .cell .ov button {
-    border: 0; background: transparent; color: #fff; font-size: 12px; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-  }
-  .cell .ov button:hover { background: rgba(255,255,255,.16); }
-
-  /* ---- PASS B: review ---- */
-  .review-wrap { display: flex; flex-direction: column; align-items: center; gap: 14px; padding-top: 10px; }
-  .review-img {
-    max-width: min(640px, 92vw); max-height: 62vh; border: 2px solid var(--line);
-    border-radius: 10px; background: #000; object-fit: contain;
-  }
-  .guess { font-size: 16px; }
-  .guess .name { font-weight: 700; }
-  .conf { color: var(--muted); }
-  .review-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
-  .queue-pos { color: var(--muted); font-size: 12.5px; }
-
-  .empty { color: var(--muted); text-align: center; padding: 40px; }
-  footer {
-    position: fixed; bottom: 0; left: 0; right: 0; background: var(--panel);
-    border-top: 1px solid var(--line); padding: 6px 16px; font-size: 12px; color: var(--muted);
-    display: flex; gap: 16px; flex-wrap: wrap;
-  }
-  kbd {
-    background: var(--panel2); border: 1px solid var(--line); border-bottom-width: 2px;
-    border-radius: 4px; padding: 0 5px; font-family: ui-monospace, monospace; color: var(--fg);
-  }
-  .flash { position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
-           background: var(--accent); color: #06121f; padding: 6px 14px; border-radius: 8px;
-           font-weight: 600; opacity: 0; transition: opacity .18s; pointer-events: none; z-index: 20; }
-  .flash.show { opacity: 1; }
-  .flash.err { background: var(--reject); color: #fff; }
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.4 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+  header{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px solid var(--line);
+         padding:10px 16px;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+  h1{margin:0 0 2px;font-size:16px}
+  .steps{color:var(--muted);font-size:13px;margin:2px 0 8px}
+  .steps b{color:var(--ink)}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .brush{border:2px solid var(--line);background:#232833;color:var(--ink);border-radius:8px;
+         padding:7px 12px;cursor:pointer;font-size:14px;font-weight:600;display:flex;gap:6px;align-items:center;
+         transition:transform .05s}
+  .brush .k{background:#0c0e12;border:1px solid var(--line);border-radius:4px;padding:0 6px;font-size:12px;color:var(--muted)}
+  .brush .sub{font-weight:400;color:var(--muted);font-size:12px}
+  .brush:hover{transform:translateY(-1px)}
+  .brush.active{color:#fff}
+  .brush[data-cat="Sapphire"].active{background:var(--sapphire);border-color:var(--sapphire)}
+  .brush[data-cat="Emerald"].active{background:var(--emerald);border-color:var(--emerald)}
+  .brush[data-cat="Ruby"].active{background:var(--ruby);border-color:var(--ruby)}
+  .brush[data-cat="Diamond"].active{background:var(--diamond);border-color:var(--diamond)}
+  .brush[data-cat="reject"].active{background:var(--reject);border-color:var(--reject)}
+  .hint{margin-left:auto;color:var(--muted);font-size:13px}
+  #undo{border:1px solid var(--line);background:#232833;color:var(--ink);border-radius:8px;padding:7px 12px;cursor:pointer}
+  #undo:disabled{opacity:.4;cursor:default}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .tab{border:1px solid var(--line);background:#191c22;color:var(--muted);border-radius:16px;
+       padding:4px 12px;cursor:pointer;font-size:13px}
+  .tab.active{background:#0c0e12;color:var(--ink);border-color:#4b5563}
+  #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;padding:14px}
+  .card{position:relative;border:3px solid transparent;border-radius:8px;overflow:hidden;cursor:pointer;
+        background:#000;aspect-ratio:1/1}
+  .card img{width:100%;height:100%;object-fit:cover;display:block}
+  .card:hover{outline:2px solid #4b5563}
+  .card.gone{opacity:0;transform:scale(.85);transition:opacity .18s,transform .18s;pointer-events:none}
+  .badge{position:absolute;left:4px;bottom:4px;font-size:11px;font-weight:700;color:#fff;
+         padding:1px 6px;border-radius:4px}
+  .empty{color:var(--muted);padding:40px;text-align:center;grid-column:1/-1}
+  #need{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#3a2020;color:#ffb4b4;
+        border:1px solid #7f1d1d;padding:8px 16px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none}
+  #need.show{opacity:1}
 </style>
 </head>
 <body>
 <header>
-  <h1>🐾 pottycam labeler</h1>
-  <div class="toggle" id="passToggle">
-    <button data-pass="A" class="on">Pass A · name clusters</button>
-    <button data-pass="B">Pass B · review guesses</button>
+  <h1>pottycam labeler — which cat is this?</h1>
+  <div class="steps"><b>1.</b> Click a name to pick it (it lights up). &nbsp; <b>2.</b> Click each photo that IS that cat — one at a time. &nbsp; <b>3.</b> Bad photo (hand, scoop, empty, blurry)? Pick <b>Reject</b> and click it. &nbsp; Mistake? <b>Undo</b> (u).</div>
+  <div class="row" id="brushes">
+    <button class="brush" data-cat="Sapphire"><span class="k">1</span>Sapphire<span class="sub">smallest white</span></button>
+    <button class="brush" data-cat="Emerald"><span class="k">2</span>Emerald<span class="sub">medium white</span></button>
+    <button class="brush" data-cat="Ruby"><span class="k">3</span>Ruby<span class="sub">largest white</span></button>
+    <button class="brush" data-cat="Diamond"><span class="k">4</span>Diamond<span class="sub">darker / pointed</span></button>
+    <button class="brush" data-cat="reject"><span class="k">x</span>Reject<span class="sub">not a cat / bad</span></button>
+    <button id="undo" disabled><span class="k">u</span> Undo</button>
+    <span class="hint" id="counts">…</span>
   </div>
-  <div class="counter" id="counter">…</div>
+  <div class="tabs" id="tabs"></div>
 </header>
-
-<div class="legend">
-  <span class="chip"><span class="dot" style="background:var(--c1)"></span><b>1 Sapphire</b> — smallest white</span>
-  <span class="chip"><span class="dot" style="background:var(--c2)"></span><b>2 Emerald</b> — mid white</span>
-  <span class="chip"><span class="dot" style="background:var(--c3)"></span><b>3 Ruby</b> — largest white</span>
-  <span class="chip"><span class="dot" style="background:var(--c4)"></span><b>4 Diamond</b> — darker / pointed</span>
-  <span class="chip warn">⚠ IR/grayscale: Ruby's orange back-mark is INVISIBLE — go by body SIZE (Sapphire&lt;Emerald&lt;Ruby), not color.</span>
-</div>
-
-<main id="main"><div class="empty">loading…</div></main>
-
-<div class="flash" id="flash"></div>
-
-<footer id="foot"></footer>
+<div id="grid"><div class="empty">loading…</div></div>
+<div id="need">Pick a name first ↑ then click the photo</div>
 
 <script>
-"use strict";
-// ======= pinned data contract (must match serve_labeler.py / train_identity.py) =======
-const CLASSES = ["Sapphire", "Emerald", "Ruby", "Diamond"]; // keys 1/2/3/4
-const REJECT_REASON_DEFAULT = "not-a-cat"; // x -> rejects.jsonl (NEVER labels.jsonl)
+const CLASSES = ["Sapphire","Emerald","Ruby","Diamond"];
+const COLORS = {Sapphire:"var(--sapphire)",Emerald:"var(--emerald)",Ruby:"var(--ruby)",Diamond:"var(--diamond)",reject:"var(--reject)"};
+let clusters = [];        // [{cluster, crops:[...]}]
+let decided = new Set();  // crop basenames already labeled/rejected
+let active = null;        // current brush ("Sapphire".. or "reject")
+let curTab = 0;
+let counts = {labeled:0, rejected:0};
 
-// ======= state =======
-let PASS = "A";
-let clusters = [];      // [{cluster, crops:[..]}]
-let review = [];        // [{crop, guess, confidence}]
-let decided = new Set();   // labeled OR rejected (from /api/state)
-let labeledSet = new Set();
-let rejectedSet = new Set();
-let counts = { labeled: 0, rejected: 0 };
-let canUndo = false;
+const $ = s => document.querySelector(s);
+const grid = $("#grid"), tabsEl = $("#tabs");
 
-let reviewIdx = 0;      // pointer into `review` (skips already-decided)
-
-const $ = (s, r = document) => r.querySelector(s);
-const main = $("#main");
-const counterEl = $("#counter");
-
-// ======= networking =======
-async function api(path, opts) {
-  const r = await fetch(path, opts);
-  let body = null;
-  try { body = await r.json(); } catch (e) {}
-  return { ok: r.ok, status: r.status, body };
-}
-async function refreshState() {
-  const { body } = await api("/api/state");
-  if (!body) return;
-  labeledSet = new Set(body.labeled || []);
-  rejectedSet = new Set(body.rejected || []);
-  decided = new Set([...labeledSet, ...rejectedSet]);
-  counts = body.counts || counts;
-  canUndo = !!body.can_undo;
-  renderCounter();
-}
-function renderCounter() {
-  const total = totalCrops();
-  const remaining = Math.max(0, total - decided.size);
-  counterEl.innerHTML =
-    `labeled <b>${counts.labeled}</b> · rejected <b>${counts.rejected}</b> · ` +
-    `remaining <b>${remaining}</b> / ${total}`;
-}
-function totalCrops() {
-  const s = new Set();
-  clusters.forEach(c => c.crops.forEach(x => s.add(x)));
-  review.forEach(r => s.add(r.crop));
-  return s.size;
+async function api(path, body){
+  const opt = body ? {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)} : {};
+  const r = await fetch(path, opt);
+  return {ok:r.ok, status:r.status, data: await r.json().catch(()=>({}))};
 }
 
-function flash(msg, err) {
-  const f = $("#flash");
-  f.textContent = msg;
-  f.className = "flash show" + (err ? " err" : "");
-  clearTimeout(flash._t);
-  flash._t = setTimeout(() => { f.className = "flash"; }, 1100);
+function undecidedOf(c){ return c.crops.filter(x => !decided.has(x)); }
+
+function setBrush(cat){
+  active = cat;
+  document.querySelectorAll(".brush").forEach(b => b.classList.toggle("active", b.dataset.cat === cat));
 }
 
-// ======= actions (shared by both passes) =======
-async function doLabel(crop, name) {
-  if (decided.has(crop)) { flash("already decided", true); return false; }
-  const { ok, status, body } = await api("/api/label", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ crop, name }),
+function renderTabs(){
+  tabsEl.innerHTML = "";
+  clusters.forEach((c,i) => {
+    const n = undecidedOf(c).length;
+    const t = document.createElement("button");
+    t.className = "tab" + (i===curTab?" active":"");
+    t.textContent = `Cluster ${c.cluster} · ${n} left`;
+    t.onclick = () => { curTab = i; renderTabs(); renderGrid(); };
+    tabsEl.appendChild(t);
   });
-  if (!ok) { flash((body && body.error) || ("err " + status), true); await refreshState(); return false; }
-  applyStateFrom(body);
-  flash(name);
-  return true;
-}
-async function doReject(crop, reason) {
-  if (decided.has(crop)) { flash("already decided", true); return false; }
-  const { ok, status, body } = await api("/api/reject", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ crop, reason: reason || REJECT_REASON_DEFAULT }),
-  });
-  if (!ok) { flash((body && body.error) || ("err " + status), true); await refreshState(); return false; }
-  applyStateFrom(body);
-  flash("rejected");
-  return true;
-}
-async function doUndo() {
-  const { ok, body } = await api("/api/undo", { method: "POST" });
-  if (!ok) { flash((body && body.error) || "nothing to undo", true); return; }
-  applyStateFrom(body);
-  flash("undid " + (body.undone || ""));
-  // step the review pointer back so the undone crop is shown again
-  if (PASS === "B" && body.undone) {
-    const at = review.findIndex(r => r.crop === body.undone);
-    if (at >= 0) reviewIdx = at;
-  }
-  render();
-}
-function applyStateFrom(body) {
-  if (!body) return;
-  labeledSet = new Set(body.labeled || [...labeledSet]);
-  rejectedSet = new Set(body.rejected || [...rejectedSet]);
-  decided = new Set([...labeledSet, ...rejectedSet]);
-  if (body.counts) counts = body.counts;
-  canUndo = !!body.can_undo;
-  renderCounter();
 }
 
-// ======= PASS A: cluster contact sheets =======
-function cellState(crop) {
-  if (labeledSet.has(crop)) return "done";
-  if (rejectedSet.has(crop)) return "rejected";
-  return "";
+function updateCounts(){
+  const remaining = clusters.reduce((s,c)=>s+undecidedOf(c).length,0);
+  $("#counts").textContent = `${counts.labeled} named · ${counts.rejected} rejected · ${remaining} left total`;
 }
-function renderPassA() {
-  if (!clusters.length) {
-    main.innerHTML = `<div class="empty">No clusters. Run <code>embed_cluster.py</code> first, ` +
-      `or drop crops in <code>data/crops/</code>.</div>`;
-    return;
+
+function flashNeed(){ const n=$("#need"); n.classList.add("show"); clearTimeout(flashNeed._t); flashNeed._t=setTimeout(()=>n.classList.remove("show"),1200); }
+
+async function decide(crop, cardEl){
+  if(!active){ flashNeed(); return; }
+  const isReject = active === "reject";
+  const res = await api(isReject ? "/api/reject" : "/api/label",
+                        isReject ? {crop, reason:"not-a-cat"} : {crop, name:active});
+  if(res.ok){
+    decided.add(crop);
+    if(res.data.counts) counts = res.data.counts;
+    // paint + remove the tile
+    const badge = document.createElement("div");
+    badge.className = "badge"; badge.style.background = COLORS[active];
+    badge.textContent = isReject ? "rejected" : active;
+    cardEl.appendChild(badge);
+    cardEl.classList.add("gone");
+    setTimeout(()=>{ cardEl.remove(); if(!grid.querySelector(".card")) renderGrid(); }, 180);
+    $("#undo").disabled = false;
+    renderTabs(); updateCounts();
+  } else if(res.status === 409){
+    decided.add(crop); cardEl.remove();   // already decided elsewhere; just drop it
   }
+}
+
+function renderGrid(){
+  const c = clusters[curTab];
+  grid.innerHTML = "";
+  if(!c){ grid.innerHTML='<div class="empty">no clusters found</div>'; return; }
+  const items = undecidedOf(c);
+  if(!items.length){ grid.innerHTML = `<div class="empty">Cluster ${c.cluster} done — pick another tab above.</div>`; return; }
   const frag = document.createDocumentFragment();
-  clusters.forEach(cl => {
-    const box = document.createElement("section");
-    box.className = "cluster";
-    const undecided = cl.crops.filter(c => !decided.has(c)).length;
-    box.innerHTML = `
-      <div class="cluster-head">
-        <span class="title">Cluster ${cl.cluster}</span>
-        <span class="sub">${cl.crops.length} crops · ${undecided} undecided</span>
-        <div class="bulk">
-          ${CLASSES.map((n, i) =>
-            `<button class="btn c${i+1}" data-bulk="${n}">${i+1} ${n}</button>`).join("")}
-          <button class="btn rej" data-bulk="__reject__">x reject all</button>
-        </div>
-      </div>
-      <div class="grid"></div>`;
-    const grid = $(".grid", box);
-    cl.crops.forEach(crop => grid.appendChild(makeCell(crop)));
-    box.querySelectorAll("[data-bulk]").forEach(b => {
-      b.addEventListener("click", () => bulkAssign(cl, b.dataset.bulk));
-    });
-    frag.appendChild(box);
+  items.forEach(crop => {
+    const card = document.createElement("div");
+    card.className = "card";
+    const img = document.createElement("img");
+    img.loading = "lazy"; img.src = "/crop/" + encodeURIComponent(crop);
+    card.appendChild(img);
+    card.onclick = () => decide(crop, card);
+    frag.appendChild(card);
   });
-  main.innerHTML = "";
-  main.appendChild(frag);
+  grid.appendChild(frag);
 }
-function makeCell(crop) {
-  const cell = document.createElement("div");
-  cell.className = "cell " + cellState(crop);
-  cell.dataset.crop = crop;
-  const tag = labeledSet.has(crop) ? [...labeledSet].includes(crop) ? tagFor(crop) : "" : "";
-  cell.innerHTML = `
-    <img loading="lazy" src="/crop/${encodeURIComponent(crop)}" alt="${crop}">
-    <div class="ov">
-      ${CLASSES.map((n, i) => `<button title="${n}" data-set="${n}">${i+1}</button>`).join("")}
-      <button title="reject" data-set="__reject__">x</button>
-    </div>
-    <div class="tag">${tag}</div>`;
-  cell.querySelectorAll("[data-set]").forEach(b => {
-    b.addEventListener("click", async (ev) => {
-      ev.stopPropagation();
-      const v = b.dataset.set;
-      const okc = v === "__reject__" ? await doReject(crop) : await doLabel(crop, v);
-      if (okc) updateCell(cell, crop);
-    });
-  });
-  return cell;
-}
-function tagFor(crop) {
-  return labeledSet.has(crop) ? "✓ named" : (rejectedSet.has(crop) ? "✗ reject" : "");
-}
-function updateCell(cell, crop) {
-  cell.className = "cell " + cellState(crop);
-  const t = $(".tag", cell);
-  if (t) t.textContent = tagFor(crop);
-}
-async function bulkAssign(cl, value) {
-  // apply to every not-yet-decided crop in the cluster; per-crop overrides already-decided ones are untouched
-  const targets = cl.crops.filter(c => !decided.has(c));
-  if (!targets.length) { flash("nothing undecided here"); return; }
-  let n = 0;
-  for (const crop of targets) {
-    const ok = value === "__reject__" ? await doReject(crop) : await doLabel(crop, value);
-    if (ok) n++;
+
+async function doUndo(){
+  const res = await api("/api/undo", {});
+  if(res.ok){
+    if(res.data.undone) decided.delete(res.data.undone);
+    if(res.data.counts) counts = res.data.counts;
+    $("#undo").disabled = !res.data.can_undo;
+    renderTabs(); renderGrid(); updateCounts();
   }
-  flash(`${value === "__reject__" ? "rejected" : value} ×${n}`);
-  renderPassA();
 }
 
-// ======= PASS B: active-learning review =======
-function advanceToUndecided() {
-  while (reviewIdx < review.length && decided.has(review[reviewIdx].crop)) reviewIdx++;
-}
-function renderPassB() {
-  if (!review.length) {
-    main.innerHTML = `<div class="empty">No review queue. Run ` +
-      `<code>train_identity.py --mode select</code> to write <code>review.jsonl</code>.</div>`;
-    return;
-  }
-  advanceToUndecided();
-  if (reviewIdx >= review.length) {
-    main.innerHTML = `<div class="empty">🎉 Review queue clear — retrain, then ` +
-      `<code>--mode select</code> again for the next batch.</div>`;
-    return;
-  }
-  const r = review[reviewIdx];
-  const conf = (r.confidence == null) ? "—" : (r.confidence * 100).toFixed(1) + "%";
-  const gi = CLASSES.indexOf(r.guess);
-  const gcolor = gi >= 0 ? `var(--c${gi+1})` : "var(--fg)";
-  main.innerHTML = `
-    <div class="review-wrap">
-      <div class="queue-pos">${reviewIdx + 1} / ${review.length} · least-confident first</div>
-      <img class="review-img" src="/crop/${encodeURIComponent(r.crop)}" alt="${r.crop}">
-      <div class="guess">model guess:
-        <span class="name" style="color:${gcolor}">${r.guess || "?"}</span>
-        <span class="conf">(conf ${conf})</span>
-      </div>
-      <div class="review-actions">
-        <button class="btn" id="confirmBtn">␣ confirm ${r.guess || ""}</button>
-        ${CLASSES.map((n, i) => `<button class="btn c${i+1}" data-set="${n}">${i+1} ${n}</button>`).join("")}
-        <button class="btn rej" data-set="__reject__">x reject</button>
-        <button class="btn" data-skip="1">n skip →</button>
-      </div>
-    </div>`;
-  $("#confirmBtn").addEventListener("click", () => confirmGuess());
-  main.querySelectorAll("[data-set]").forEach(b => b.addEventListener("click", async () => {
-    const v = b.dataset.set;
-    const crop = r.crop;
-    const ok = v === "__reject__" ? await doReject(crop) : await doLabel(crop, v);
-    if (ok) { reviewIdx++; renderPassB(); }
-  }));
-  main.querySelector("[data-skip]").addEventListener("click", () => { reviewIdx++; renderPassB(); });
-}
-async function confirmGuess() {
-  const r = review[reviewIdx];
-  if (!r) return;
-  if (!r.guess || CLASSES.indexOf(r.guess) < 0) { flash("no valid guess to confirm", true); return; }
-  const ok = await doLabel(r.crop, r.guess);
-  if (ok) { reviewIdx++; renderPassB(); }
-}
-
-// ======= render dispatch =======
-function render() {
-  renderCounter();
-  if (PASS === "A") renderPassA(); else renderPassB();
-}
-
-// ======= keyboard =======
-document.addEventListener("keydown", async (e) => {
-  if (e.key === "Escape") { if (document.activeElement) document.activeElement.blur(); return; }
-  // don't hijack typing in inputs (there are none, but be safe)
-  if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
-
-  const k = e.key.toLowerCase();
-  if (k === "u") { e.preventDefault(); await doUndo(); return; }
-
-  if (PASS === "B") {
-    const r = review[reviewIdx];
-    if (!r) return;
-    if (k === " " || k === "spacebar" || k === "enter") { e.preventDefault(); await confirmGuess(); return; }
-    if (k === "1" || k === "2" || k === "3" || k === "4") {
-      e.preventDefault();
-      const ok = await doLabel(r.crop, CLASSES[(+k) - 1]);
-      if (ok) { reviewIdx++; renderPassB(); }
-      return;
-    }
-    if (k === "x") { e.preventDefault(); const ok = await doReject(r.crop); if (ok) { reviewIdx++; renderPassB(); } return; }
-    if (k === "n" || k === "arrowright" || k === "arrowdown") { e.preventDefault(); reviewIdx++; renderPassB(); return; }
-    if (k === "arrowleft" || k === "arrowup") { e.preventDefault(); if (reviewIdx > 0) reviewIdx--; renderPassB(); return; }
-  }
-  // Pass A has no single "focused crop"; keys 1-4/x act via hover buttons or the bulk row.
+document.querySelectorAll(".brush").forEach(b => b.onclick = () => setBrush(b.dataset.cat));
+$("#undo").onclick = doUndo;
+window.addEventListener("keydown", e => {
+  if(e.key === "1") setBrush("Sapphire");
+  else if(e.key === "2") setBrush("Emerald");
+  else if(e.key === "3") setBrush("Ruby");
+  else if(e.key === "4") setBrush("Diamond");
+  else if(e.key.toLowerCase() === "x") setBrush("reject");
+  else if(e.key.toLowerCase() === "u") doUndo();
 });
 
-// ======= pass toggle =======
-$("#passToggle").querySelectorAll("button").forEach(b => {
-  b.addEventListener("click", () => {
-    $("#passToggle").querySelectorAll("button").forEach(x => x.classList.remove("on"));
-    b.classList.add("on");
-    PASS = b.dataset.pass;
-    render();
-  });
-});
-
-// ======= footer cheat-sheet =======
-$("#foot").innerHTML = [
-  ["1/2/3/4", "class"], ["x", "reject"], ["space / enter", "confirm guess (Pass B)"],
-  ["u", "undo"], ["n / → ", "skip"], ["esc", "clear focus"],
-].map(([k, d]) => `<span><kbd>${k}</kbd> ${d}</span>`).join("");
-
-// ======= boot =======
-(async function boot() {
-  const [cl, rv] = await Promise.all([api("/api/clusters"), api("/api/review")]);
-  clusters = (cl.body && cl.body.clusters) || [];
-  review = (rv.body && rv.body.review) || [];
-  await refreshState();
-  render();
+(async function init(){
+  const [cl, st] = await Promise.all([api("/api/clusters"), api("/api/state")]);
+  clusters = (cl.data.clusters || []).sort((a,b)=>a.cluster-b.cluster);
+  decided = new Set([...(st.data.labeled||[]), ...(st.data.rejected||[])]);
+  counts = st.data.counts || {labeled:0,rejected:0};
+  $("#undo").disabled = !st.data.can_undo;
+  renderTabs(); renderGrid(); updateCounts();
 })();
 </script>
 </body>
