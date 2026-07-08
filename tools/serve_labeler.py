@@ -232,6 +232,21 @@ def load_clusters(root):
     return [{"cluster": cid, "crops": groups[cid]} for cid in sorted(groups)]
 
 
+def load_frame_meta(root):
+    """crops.jsonl -> {crop_basename: {"src": <source frame path>, "box": [x0,y0,x1,y1]}}.
+
+    The labeler shows the WHOLE source frame (so a human can judge the cat's SIZE against the fixed box —
+    which a tight crop destroys) with the cat's bbox drawn on top. The label still attaches to the crop
+    basename, so the model still trains on the tight crops. `src` is the original snapshot the crop came
+    from; `box` is the normalized bbox in that frame."""
+    meta = {}
+    for r in read_jsonl(os.path.join(root, "data", "crops", "crops.jsonl")):
+        crop = r.get("crop")
+        if crop:
+            meta[crop] = {"src": r.get("src") or "", "box": r.get("box")}
+    return meta
+
+
 def load_review(root):
     """review.jsonl in its existing order (train_identity already sorts most-uncertain first)."""
     rows = read_jsonl(os.path.join(root, "data", "labels", "review.jsonl"))
@@ -254,6 +269,8 @@ def load_review(root):
 def make_handler(root, store):
     crops_dir = os.path.join(root, "data", "crops")
     labeler_html = os.path.join(HERE, "labeler.html")
+    frame_meta = load_frame_meta(root)               # crop basename -> {src, box}
+    root_rp = os.path.realpath(root)
 
     class Handler(BaseHTTPRequestHandler):
         # keep the console quiet-ish; one line per request is plenty for a local tool
@@ -297,6 +314,10 @@ def make_handler(root, store):
                     return self._send(200, f.read(), "text/html; charset=utf-8")
             if path.startswith("/crop/"):
                 return self._serve_crop(path[len("/crop/"):])
+            if path.startswith("/frame/"):
+                return self._serve_frame(path[len("/frame/"):])
+            if path == "/api/boxes":
+                return self._send(200, {c: m.get("box") for c, m in frame_meta.items()})
             if path == "/api/clusters":
                 return self._send(200, {"clusters": load_clusters(root)})
             if path == "/api/review":
@@ -314,6 +335,37 @@ def make_handler(root, store):
             if not os.path.isfile(fpath):
                 return self._send(404, {"error": "no such crop"})
             with open(fpath, "rb") as f:
+                data = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "max-age=86400")
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(data)
+
+        def _serve_frame(self, name):
+            """Serve the FULL source snapshot a crop came from (so the human sees the whole scene / size).
+            Resolves the frame under `root` only — a crop's recorded src (e.g. /work/snaps/YYYY/MM/DD/x.jpg)
+            is honored if it lives under root; otherwise we reconstruct root/snaps/<after-snaps> so it works
+            even if the mining ran under a different root. Path-traversal safe (must resolve under root)."""
+            name = os.path.basename(name)
+            m = frame_meta.get(name)
+            if not m:
+                return self._send(404, {"error": "no such crop"})
+            src = (m.get("src") or "").replace("\\", "/")
+            cand = os.path.realpath(src)
+            if not (os.path.isfile(cand) and (cand == root_rp or cand.startswith(root_rp + os.sep))):
+                # reconstruct under this root from the path after a 'snaps'/'footage' anchor
+                cand = None
+                for anchor in ("/snaps/", "/footage/"):
+                    i = src.find(anchor)
+                    if i >= 0:
+                        cand = os.path.realpath(os.path.join(root, anchor.strip("/"), src[i + len(anchor):]))
+                        break
+                if not (cand and os.path.isfile(cand) and cand.startswith(root_rp + os.sep)):
+                    return self._send(404, {"error": "source frame not found"})
+            with open(cand, "rb") as f:
                 data = f.read()
             self.send_response(200)
             self.send_header("Content-Type", "image/jpeg")

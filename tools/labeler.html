@@ -36,10 +36,12 @@
   .tab{border:1px solid var(--line);background:#191c22;color:var(--muted);border-radius:16px;
        padding:4px 12px;cursor:pointer;font-size:13px}
   .tab.active{background:#0c0e12;color:var(--ink);border-color:#4b5563}
-  #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;padding:14px}
+  #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;padding:14px}
   .card{position:relative;border:3px solid transparent;border-radius:8px;overflow:hidden;cursor:pointer;
-        background:#000;aspect-ratio:1/1}
+        background:#000;aspect-ratio:4/3}
   .card img{width:100%;height:100%;object-fit:cover;display:block}
+  .card .box{position:absolute;border:2px solid #facc15;box-shadow:0 0 0 1px rgba(0,0,0,.6);
+             pointer-events:none;border-radius:2px}
   .card:hover{outline:2px solid #4b5563}
   .card.gone{opacity:0;transform:scale(.85);transition:opacity .18s,transform .18s;pointer-events:none}
   .badge{position:absolute;left:4px;bottom:4px;font-size:11px;font-weight:700;color:#fff;
@@ -53,7 +55,7 @@
 <body>
 <header>
   <h1>pottycam labeler — which cat is this?</h1>
-  <div class="steps"><b>1.</b> Click a name to pick it (it lights up). &nbsp; <b>2.</b> Click each photo that IS that cat — one at a time. &nbsp; <b>3.</b> Bad photo (hand, scoop, empty, blurry)? Pick <b>Reject</b> and click it. &nbsp; Mistake? <b>Undo</b> (u).</div>
+  <div class="steps"><b>1.</b> Click a name to pick it (it lights up). &nbsp; <b>2.</b> Click each frame whose <b>outlined</b> cat is that cat — the whole scene is shown so you can judge <b>size</b> against the box. &nbsp; <b>3.</b> Hand/scoop/empty/2-cats? Pick <b>Reject</b> and click it. &nbsp; Mistake? <b>Undo</b> (u).</div>
   <div class="row" id="brushes">
     <button class="brush" data-cat="Sapphire"><span class="k">1</span>Sapphire<span class="sub">smallest white</span></button>
     <button class="brush" data-cat="Emerald"><span class="k">2</span>Emerald<span class="sub">medium white</span></button>
@@ -72,6 +74,7 @@
 const CLASSES = ["Sapphire","Emerald","Ruby","Diamond"];
 const COLORS = {Sapphire:"var(--sapphire)",Emerald:"var(--emerald)",Ruby:"var(--ruby)",Diamond:"var(--diamond)",reject:"var(--reject)"};
 let clusters = [];        // [{cluster, crops:[...]}]
+let boxes = {};           // crop basename -> [x0,y0,x1,y1] normalized (to outline the cat)
 let decided = new Set();  // crop basenames already labeled/rejected
 let active = null;        // current brush ("Sapphire".. or "reject")
 let curTab = 0;
@@ -145,8 +148,18 @@ function renderGrid(){
     const card = document.createElement("div");
     card.className = "card";
     const img = document.createElement("img");
-    img.loading = "lazy"; img.src = "/crop/" + encodeURIComponent(crop);
+    img.loading = "lazy"; img.src = "/frame/" + encodeURIComponent(crop);   // WHOLE frame, so size is judgeable
     card.appendChild(img);
+    const b = boxes[crop];   // outline the cat this label is about
+    if(b && b.length === 4){
+      const ov = document.createElement("div");
+      ov.className = "box";
+      ov.style.left   = (b[0]*100)+"%";
+      ov.style.top    = (b[1]*100)+"%";
+      ov.style.width  = ((b[2]-b[0])*100)+"%";
+      ov.style.height = ((b[3]-b[1])*100)+"%";
+      card.appendChild(ov);
+    }
     card.onclick = () => decide(crop, card);
     frag.appendChild(card);
   });
@@ -175,8 +188,9 @@ window.addEventListener("keydown", e => {
 });
 
 (async function init(){
-  const [cl, st] = await Promise.all([api("/api/clusters"), api("/api/state")]);
+  const [cl, st, bx] = await Promise.all([api("/api/clusters"), api("/api/state"), api("/api/boxes")]);
   clusters = (cl.data.clusters || []).sort((a,b)=>a.cluster-b.cluster);
+  boxes = bx.data || {};
   decided = new Set([...(st.data.labeled||[]), ...(st.data.rejected||[])]);
   counts = st.data.counts || {labeled:0,rejected:0};
   $("#undo").disabled = !st.data.can_undo;
