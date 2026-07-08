@@ -22,20 +22,23 @@ A camera is mounted **directly overhead** a litter box. We want two things:
    fix it with a small fine-tune.
 2. **Identification** — say *which* cat. There are four:
 
-   | Name | Coat | Size | Tell |
+   | Name | Coat | Size | Tell (on this camera) |
    |------|------|------|------|
-   | Sapphire | white | smallest | size |
-   | Emerald | white | medium | size |
-   | Ruby | white | largest | a distinct mark on her back |
-   | Diamond | darker | medium | coat color (the easy one) |
+   | Sapphire | white | smallest | apparent size |
+   | Emerald | white | medium | apparent size |
+   | Ruby | white | largest | apparent size (**her orange back-mark is INVISIBLE in grayscale IR**) |
+   | Diamond | darker/pointed | medium | tone — the easy one |
 
-   Three white cats separated only by **size and subtle coat/face marks**. This is a **fine-grained
-   classification** problem — the interesting kind, where the model has to learn cues a person can barely
-   articulate. It's the perfect vehicle for teaching **metric learning, clustering, and active learning.**
+   The footage is **monochrome/IR at all hours**, so **color is not a cue** and Ruby's back-mark simply
+   isn't in the pixels. Identity has to lean on what *does* survive the sensor: **Diamond's darker tone**,
+   **apparent body size** (fixed overhead camera — real but weak, and only when the cat is fully in frame),
+   and **learned coat/face/shape** cues. Three near-identical white cats is a **fine-grained classification**
+   problem — the interesting kind, where the model learns cues a person can barely articulate. It's the
+   perfect vehicle for teaching **metric learning, clustering, and active learning.**
 
-The nice property of this setup for teaching: the camera is **fixed**, so a lot of the hard parts
-(where's the subject? is one present?) become tractable with classical tricks (background subtraction,
-apparent size), which lets us focus on the ML.
+The nice property of this setup for teaching: the camera is **fixed** (and hasn't moved in 7 months), so a
+lot of the hard parts (where's the subject? is one present?) become tractable with classical tricks
+(background subtraction, apparent size), which lets us focus on the ML.
 
 ## The approach (two decoupled stages)
 
@@ -70,12 +73,14 @@ a cat name is a non-starter. The pipeline uses three ideas to shrink the human e
 ```
 docs/       the lesson, in order (start at docs/01-the-problem.md)
 src/        the pipeline
-  mine_crops.py     background-subtraction crop miner (works on clips or an NVR's recordings)
-  embed_cluster.py  embed crops + cluster them for the "name a cluster" step
-  train_detect.py   Stage A — fine-tune YOLO   (scaffold + guide)
-  train_identity.py Stage B — fine-grained classifier + active-learning loop  (scaffold + guide)
+  mine_crops.py     background-subtraction TIGHT-crop miner (clips or an NVR's recordings) → crops.jsonl
+  embed_cluster.py  embed the tight crops + cluster them for the "name a cluster" step
+  train_detect.py   Stage A — fine-tune YOLO11n   (scaffold + guide)
+  train_identity.py Stage B — grayscale fine-grained ResNet18 + size/tone scalars + active-learning loop
   deploy_frigate.py ship it: write the cat's name into the NVR as a sub-label  (scaffold + guide)
-data/       your footage + generated crops (git-ignored — bring your own)
+tools/      the labeling tool
+  serve_labeler.py  stdlib-only localhost labeling server (cluster-naming + active-learning review)
+data/       your footage + generated crops/labels (git-ignored — bring your own)
 ```
 
 ## Quickstart
@@ -106,6 +111,7 @@ the model is trained on the real dataset. Follow the docs; issues and questions 
 4. [Active learning — the single-click confirm/reject loop](docs/04-active-learning.md)
 5. [Training — detection, then fine-grained identity](docs/05-training.md)
 6. [Deploy — naming the cat live in the NVR](docs/06-deploy-to-frigate.md)
+7. [The labeling tool — fast, safe, offline](docs/07-labeling-tool.md)
 
 ---
 

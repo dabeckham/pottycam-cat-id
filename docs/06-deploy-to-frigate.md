@@ -40,4 +40,6 @@ active-learning round. The model gets better the longer it runs.
 > understand), how you gate mistakes, and how production feeds back into training are what turn a good
 > notebook result into a system that actually works — and keeps improving.
 
+Next → [7 — The labeling tool](07-labeling-tool.md)
+
 ← back to [README](../README.md)
