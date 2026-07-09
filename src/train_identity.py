@@ -51,9 +51,16 @@ USE_INTENSITY = True  # feed the median-gray scalar alongside size (helps separa
 # analysis. The chosen field is recorded in the checkpoint (size_field) so deploy can assert a match.
 SIZE_FIELD = "box_area"
 
+# Model input representation. "context" = the fixed-window ctx crop (same ROI + constant scale, so the
+# cat's apparent SIZE is preserved in the pixels against the fixed box/scoop reference — the size cue the
+# tight crop destroys). "tight" = the old bbox-normalized crop (max coat detail, size only via the scalar).
+# Default context; override with --input for an A/B (compare the 3x3 white-cat confusion). If a crop has no
+# ctx image recorded, we fall back to its tight crop so the run never breaks.
+INPUT_MODE = "context"
+
 
 # --------------------------------------------------------------------------------------------------
-# crops.jsonl side-table: crop basename -> (size_scalar, intensity, day)
+# crops.jsonl side-table: crop basename -> (image-to-load, size_scalar, intensity, day)
 # --------------------------------------------------------------------------------------------------
 def _load_crop_meta(crops_dir):
     """Read data/crops/crops.jsonl and return {crop_basename: {"size":float, "intensity":float,
@@ -89,7 +96,11 @@ def _load_crop_meta(crops_dir):
             size = float(primary) if primary is not None else (float(fallback) if fallback is not None else 0.0)
             inten = r.get("intensity")
             inten = float(inten) if inten is not None else 0.5
-            meta[crop] = {"size": size, "intensity": inten, "day": r.get("day", "")}
+            ctx = r.get("ctx_crop")
+            # which IMAGE the model loads for this crop: the fixed-window context crop (size-legible) in
+            # context mode, else the tight crop. Fall back to tight if no ctx image was recorded.
+            img = ctx if (INPUT_MODE == "context" and ctx) else crop
+            meta[crop] = {"img": img, "size": size, "intensity": inten, "day": r.get("day", "")}
     return meta
 
 
@@ -118,14 +129,24 @@ def _tf(train):
     # 1 output channel keeps it grayscale even if the file happens to be stored as 3-channel gray.
     to_gray = T.Grayscale(num_output_channels=1)
     if train:
-        geom = [
-            T.RandomResizedCrop(INPUT_RES, scale=(0.85, 1.0), ratio=(0.9, 1.1)),
-            T.RandomHorizontalFlip(),
-            T.RandomVerticalFlip(),
-            T.RandomRotation(360),  # overhead box has no canonical orientation
-            # photometric near-zero: tiny brightness/contrast only, NO saturation/hue.
-            T.ColorJitter(brightness=0.1, contrast=0.1),
-        ]
+        if INPUT_MODE == "context":
+            # SIZE is the point of the context crop, so NO scale augmentation (RandomResizedCrop would
+            # re-randomize apparent size and undo it). Rotation + flips (overhead box has no canonical
+            # up) + a small ~6% window TRANSLATION to stop the net memorizing the constant background.
+            geom = [
+                T.RandomAffine(degrees=360, translate=(0.06, 0.06)),   # rotate + jitter, NO scale
+                T.RandomHorizontalFlip(),
+                T.RandomVerticalFlip(),
+                T.ColorJitter(brightness=0.1, contrast=0.1),
+            ]
+        else:
+            geom = [
+                T.RandomResizedCrop(INPUT_RES, scale=(0.85, 1.0), ratio=(0.9, 1.1)),
+                T.RandomHorizontalFlip(),
+                T.RandomVerticalFlip(),
+                T.RandomRotation(360),  # overhead box has no canonical orientation
+                T.ColorJitter(brightness=0.1, contrast=0.1),
+            ]
         pre = [to_gray, T.Resize((INPUT_RES, INPUT_RES)), *geom]
     else:
         pre = [to_gray, T.Resize((INPUT_RES, INPUT_RES))]
@@ -286,7 +307,8 @@ def train(crops, labels_path, out, epochs, device):
 
         def __getitem__(self, i):
             r = self.data[i]
-            img = Image.open(os.path.join(crops, r["crop"]))
+            img_name = meta.get(r["crop"], {}).get("img", r["crop"])  # ctx crop in context mode, else tight
+            img = Image.open(os.path.join(crops, img_name))
             x = self.tf(img)
             scal = _scalars_for(r["crop"], meta, size_mean, size_std, inten_mean, inten_std)
             y = CLASSES.index(r["name"])
@@ -341,6 +363,7 @@ def train(crops, labels_path, out, epochs, device):
         "input_res": INPUT_RES,
         "use_intensity": USE_INTENSITY,
         "n_scalars": N_SCALARS,
+        "input_mode": INPUT_MODE,   # deploy must reproduce this input (context = crop the fixed ROI)
         "size_field": SIZE_FIELD,   # deploy asserts it can reproduce this size quantity (box_area)
         "size_mean": size_mean, "size_std": size_std,
         "inten_mean": inten_mean, "inten_std": inten_std,
@@ -371,20 +394,30 @@ def select_uncertain(crops, model_path, out, top, device):
     model.eval()
 
     tf = _tf(False)
-    files = sorted(os.path.basename(p) for p in glob.glob(os.path.join(crops, "*.jpg")))
+    # Iterate the CANONICAL crop ids from the manifest (the tight-crop basenames that labels attach to),
+    # NOT a *.jpg glob — the glob would double-count the _ctx.jpg files and emit ctx names the labeler
+    # can't map back. For each id we load the mode-appropriate image (ctx in context mode, else tight).
+    crop_ids = sorted(meta.keys())
+    if not crop_ids:  # no manifest -> fall back to tight crops on disk (exclude ctx images)
+        crop_ids = sorted(os.path.basename(p) for p in glob.glob(os.path.join(crops, "*.jpg"))
+                          if not p.endswith("_ctx.jpg"))
     scored = []
     with torch.no_grad():
-        for f in files:
-            img = Image.open(os.path.join(crops, f))
+        for c in crop_ids:
+            img_name = meta.get(c, {}).get("img", c)
+            path = os.path.join(crops, img_name)
+            if not os.path.exists(path):
+                continue
+            img = Image.open(path)
             x = tf(img).unsqueeze(0).to(device)
             scal = torch.tensor(
-                [_scalars_for(f, meta, size_mean, size_std, inten_mean, inten_std)],
+                [_scalars_for(c, meta, size_mean, size_std, inten_mean, inten_std)],
                 dtype=torch.float32, device=device,
             )
             p = torch.softmax(model(x, scal), 1).squeeze(0).cpu().numpy()
             conf = float(p.max())
             guess = CLASSES[int(p.argmax())]
-            scored.append({"crop": f, "guess": guess, "confidence": conf})
+            scored.append({"crop": c, "guess": guess, "confidence": conf})
     scored.sort(key=lambda r: r["confidence"])  # least confident first = the hard cases
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     n_out = min(top or len(scored), len(scored))
@@ -395,6 +428,7 @@ def select_uncertain(crops, model_path, out, top, device):
 
 
 def main():
+    global INPUT_MODE
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["train", "select"], required=True)
     ap.add_argument("--crops", default="data/crops")
@@ -404,11 +438,15 @@ def main():
     ap.add_argument("--epochs", type=int, default=15)
     ap.add_argument("--top", type=int, default=200, help="how many uncertain crops to surface")
     ap.add_argument("--device", default=None, help="cuda|cpu (default: cuda if available)")
+    ap.add_argument("--input", choices=["context", "tight"], default=INPUT_MODE,
+                    help="model input: 'context' (fixed-window, size-legible; default) or 'tight' "
+                         "(bbox-normalized, size via scalar only). Use for the A/B on white-cat confusion.")
     args = ap.parse_args()
+    INPUT_MODE = args.input
 
     import torch
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[identity] device={device}", flush=True)
+    print(f"[identity] device={device} input={INPUT_MODE}", flush=True)
 
     if args.mode == "train":
         train(args.crops, args.labels, args.model, args.epochs, device)

@@ -48,6 +48,7 @@ import numpy as np
 CLASSES = ["Sapphire", "Emerald", "Ruby", "Diamond"]  # fixed order; identity model expects this
 DEFAULT_ROI = [0.42, 0.28, 1.0, 0.95]                 # action zone: cat entry / box, right-center
 CROP_LONG_SIDE = 512                                  # long side cap for the saved tight crop
+CONTEXT_SIZE = 384                                    # fixed-window "context" crop side (constant scale)
 PAD_FRAC = 0.15                                       # bbox expansion before cropping
 GRAY_SIZE = (640, 480)                                # working resolution for change detection only
 
@@ -203,6 +204,25 @@ def find_cat_blob(fr, bg_roi, roi_box, min_frac):
     return box_full, round(blob_area, 6), box_area, edge_touch
 
 
+def context_crop(fr, roi_box):
+    """Cut the fixed-window CONTEXT crop: the SAME ROI region of the (fixed-camera) frame, resized to a
+    CONSTANT CONTEXT_SIZE square. Because the ROI and the target size are constants across the whole
+    dataset, the pixel->canvas scale factor is IDENTICAL for every frame — so a cat's apparent size is
+    PRESERVED (Ruby lands on more pixels than Sapphire) and it sits against the fixed box rim / scoop as
+    reference. This is the size-legible input; crop_and_measure normalizes each cat to fill (size lost).
+    Deploy reproduces it trivially (same ROI of the frame — no background subtraction needed)."""
+    H, W = fr.shape[:2]
+    x0, y0, x1, y1 = roi_box
+    px0, py0 = int(x0 * W), int(y0 * H)
+    px1, py1 = int(x1 * W), int(y1 * H)
+    px1 = max(px1, px0 + 1)
+    py1 = max(py1, py0 + 1)
+    region = fr[py0:py1, px0:px1]
+    if region.size == 0:
+        return None
+    return cv2.resize(region, (CONTEXT_SIZE, CONTEXT_SIZE), interpolation=cv2.INTER_AREA)
+
+
 def crop_and_measure(fr, box_full):
     """Cut the TIGHT crop (bbox + 15% pad, clamped, from the ORIGINAL full-res frame, long side ~512).
 
@@ -355,10 +375,19 @@ def main():
         if crop is None:
             return False
         eid = event_id_from(src)
-        basename = f"{src_tag(src)}_f{frame_idx if frame_idx >= 0 else 'snap'}.jpg"
+        stem = f"{src_tag(src)}_f{frame_idx if frame_idx >= 0 else 'snap'}"
+        basename = f"{stem}.jpg"
         cv2.imwrite(os.path.join(crops_dir, basename), crop)
+        # ALSO emit the fixed-window context crop (size-legible input for the identity model). The tight
+        # crop stays so we can A/B the two representations on the same labels. Same ROI as detection.
+        ctx = context_crop(fr, args.box)
+        ctx_name = ""
+        if ctx is not None:
+            ctx_name = f"{stem}_ctx.jpg"
+            cv2.imwrite(os.path.join(crops_dir, ctx_name), ctx)
         rec = {
             "crop": basename,
+            "ctx_crop": ctx_name,
             "src": src,
             "event_id": eid,
             "day": day_from(src, eid),
